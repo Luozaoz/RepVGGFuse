@@ -2,13 +2,12 @@
 class Args():
 
 	# training args
-	path_ir = "images/new_dataests/IR"
-	# path_ir = 'images/train_images_20100/IR'
+	path_ir = "train_dataests/IR"
 	save_model_dir = "models"  # "path to folder where trained model will be saved."
 	save_loss_dir = "models/loss"  # "path to folder where trained model will be saved."
 	vgg_model_dir = 'models/vgg19'
 	lr = 0.00001
-	batch_size = 3  # "batch size for training, default is 4"
+	batch_size = 4  # "batch size for training, default is 4"
 	epochs = 4  # "number of training epochs, default is 4"
 	n = 128  # number of filters
 	s = 3  # filter size
