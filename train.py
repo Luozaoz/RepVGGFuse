@@ -28,14 +28,8 @@ def main():
     else:
         img_flag = True
     w_vi = 0.5
-    # Y2:
-    # lam2_vi_list = [0.1, 0.5, 1.0, 1.5, 2.0, 2.5]
     lam2_vi = args.lam2_vi
-    # Wir:
-    # w_ir_list = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
     w_ir = args.w_ir
-    # Y4:
-    # lam3_gram_list = [1500, 2000, 2500]
     lam3_gram = args.lam3_gram
     train(data, img_flag, lam2_vi, w_vi, w_ir, lam3_gram, )
 
