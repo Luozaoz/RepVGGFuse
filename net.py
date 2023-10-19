@@ -1,6 +1,7 @@
 import torch.nn as nn
 import numpy as np
 import torch
+from se_block import SEBlock
 import torch.utils.checkpoint as checkpoint
 import torch.nn.functional as F
 
@@ -11,12 +12,11 @@ class ConvLayer(torch.nn.Module):
         reflection_padding = int(np.floor(kernel_size / 2))
         self.reflection_pad = nn.ReflectionPad2d(reflection_padding)
         self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
-        # self.dropout = nn.Dropout2d(p=0.5)
+        self.dropout = nn.Dropout2d(p=0.5)
 
     def forward(self, x):
         out = self.reflection_pad(x)
         out = self.conv2d(out)
-        # out = self.dropout(out)
         return out
 
 
@@ -32,20 +32,24 @@ def conv_bn(in_channels, out_channels, kernel_size, stride, padding, groups=1):
 class RepVGGBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, padding=0, dilation=1, groups=1, padding_mode='zeros', deploy=False, use_se=False,
-                 identity=False):
+                 stride=1, padding=0, dilation=1, groups=1, padding_mode='zeros', deploy=False, use_se=False):
         super(RepVGGBlock, self).__init__()
         self.deploy = deploy
         self.groups = groups
         self.in_channels = in_channels
         self.stride = stride
-        self.identity = identity
+
         assert kernel_size == 3
         assert padding == 1
 
         padding_11 = padding - kernel_size // 2
         self.nonlinearity = nn.ReLU()
-        self.se = nn.Identity()
+
+        if use_se:
+            #   Note that RepVGG-D2se uses SE before nonlinearity. But RepVGGplus models uses SE after nonlinearity.
+            self.se = SEBlock(out_channels, internal_neurons=out_channels // 16)
+        else:
+            self.se = nn.Identity()
 
         if deploy:
             self.rbr_reparam = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
@@ -55,7 +59,7 @@ class RepVGGBlock(nn.Module):
 
         else:
             self.rbr_identity = nn.BatchNorm2d(
-                num_features=in_channels) if identity == True else None
+                num_features=in_channels) if out_channels == in_channels and stride == 1 else None
             self.rbr_dense = conv_bn(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
                                      stride=stride, padding=padding, groups=groups)
             self.rbr_1x1 = conv_bn(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride,
@@ -149,16 +153,16 @@ class GetLS_RepVGG(nn.Module):
         assert 0 not in self.override_groups_map
         self.use_se = use_se
         self.use_checkpoint = use_checkpoint
-        num_blocks = [1, 1, 1, 1]
+        num_blocks = [1, 1, 1]
         self.in_planes = 128
         self.stage0 = RepVGGBlock(in_channels=self.Channel, out_channels=self.in_planes, kernel_size=self.s,
                                   stride=stride,
-                                  padding=1, deploy=self.deploy, use_se=self.use_se, identity=False)
+                                  padding=1, deploy=self.deploy, use_se=self.use_se)
         self.cur_layer_idx = 1
-        self.stage1 = self._make_stage(width_multiplier[0], num_blocks[0], stride=stride, identity=True)
-        self.stage2 = self._make_stage(width_multiplier[1], num_blocks[1], stride=stride, identity=False)
-        self.stage3 = self._make_stage(width_multiplier[2], num_blocks[2], stride=stride, identity=True)
-        # self.stage4 = self._make_stage(width_multiplier[3], num_blocks[3], stride=stride)
+        self.stage1 = self._make_stage(width_multiplier[0], num_blocks[0], stride=stride)
+        self.stage2 = self._make_stage(width_multiplier[1], num_blocks[1], stride=stride)
+        self.stage3 = self._make_stage(width_multiplier[2], num_blocks[2], stride=stride)
+        #self.stage4 = self._make_stage(width_multiplier[3], num_blocks[3], stride=stride)
         self.conv = ConvLayer(width_multiplier[2], n * 2, 1, stride)
 
     def forward(self, x):
@@ -171,18 +175,18 @@ class GetLS_RepVGG(nn.Module):
                     out = block(out)
             if stage == self.stage3:
                 out = self.conv(out)
-        L = out[:, :224, :, :]
-        H = out[:, 224: 257, :, :]
-        return L, H
+        L = out[:, :self.n, :, :]
+        S = out[:, self.n: 2 * self.n, :, :]
+        return L, S
 
-    def _make_stage(self, planes, num_block, stride, identity):
+    def _make_stage(self, planes, num_block, stride):
         strides = [stride] + [1] * (num_block - 1)
         blocks = []
         for stride in strides:
             cur_groups = self.override_groups_map.get(self.cur_layer_idx, 1)
             blocks.append(RepVGGBlock(in_channels=self.in_planes, out_channels=planes, kernel_size=3,
                                       stride=stride, padding=1, groups=cur_groups, deploy=self.deploy,
-                                      use_se=self.use_se, identity=identity))
+                                      use_se=self.use_se))
             self.in_planes = planes
             self.cur_layer_idx += 1
         return nn.ModuleList(blocks)
@@ -192,10 +196,10 @@ class Decoder(nn.Module):
     def __init__(self, s, n, channel, stride, fusion_type):
         super(Decoder, self).__init__()
         self.type = fusion_type
-        self.conv_ReLx = ConvLayer(224, channel, s, stride)
-        self.conv_ReHx = ConvLayer(32, channel, s, stride)
-        self.conv_ReLy = ConvLayer(224, channel, s, stride)
-        self.conv_ReHy = ConvLayer(32, channel, s, stride)
+        self.conv_ReZx = ConvLayer(n, channel, s, stride)
+        self.conv_ReUx = ConvLayer(n, channel, s, stride)
+        self.conv_ReZy = ConvLayer(n, channel, s, stride)
+        self.conv_ReUy = ConvLayer(n, channel, s, stride)
 
         if self.type.__contains__('cat'):
             # cat
@@ -206,12 +210,12 @@ class Decoder(nn.Module):
             self.conv_ReL = ConvLayer(channel, channel, s, stride)
             self.conv_ReH = ConvLayer(channel, channel, s, stride)
 
-    def forward(self, Lx, Hx, Ly, Hy):
+    def forward(self, Z_x, U_x, Z_y, U_y):
         # get loww parts and sparse parts
-        x_l = self.conv_ReLx(Lx)
-        x_h = self.conv_ReHx(Hx)
-        y_l = self.conv_ReLy(Ly)
-        y_h = self.conv_ReHy(Hy)
+        x_l = self.conv_ReZx(Z_x)
+        x_h = self.conv_ReUx(U_x)
+        y_l = self.conv_ReZy(Z_y)
+        y_h = self.conv_ReUy(U_y)
         # reconstructure
         if self.type.__contains__('cat'):
             # cat
@@ -238,9 +242,9 @@ class RepVGGFuse_net(nn.Module):
         self.decoder = Decoder(s, n, channel, stride, self.fusion_type)
 
     def forward(self, x, y):
-        fea_x_l, fea_x_H = self.get_ls1(x)
-        fea_y_l, fea_y_H = self.get_ls2(y)
-        out = self.decoder(fea_x_l, fea_x_H, fea_y_l, fea_y_H)
+        fea_x_l, fea_x_s = self.get_ls1(x)
+        fea_y_l, fea_y_s = self.get_ls2(y)
+        out = self.decoder(fea_x_l, fea_x_s, fea_y_l, fea_y_s)
         return out
 
 
