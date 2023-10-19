@@ -1,2 +1,2 @@
-train images download address:
+download address of train images:
 https://www02.smt.ufrj.br/~fusion/
