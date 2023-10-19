@@ -146,59 +146,6 @@ def load_dataset(image_path, BATCH_SIZE, num_imgs=None):
     return original_imgs_path, batches
 
 
-# initial VGG16 network
-def init_vgg16(vgg, model_dir):
-    vgg_load = torch.load(model_dir)
-    count = 0
-    for name, param in vgg_load.items():
-        if count >= 20:
-            break
-        if count == 0:
-            vgg.conv1_1.weight.data = param
-        if count == 1:
-            vgg.conv1_1.bias.data = param
-        if count == 2:
-            vgg.conv1_2.weight.data = param
-        if count == 3:
-            vgg.conv1_2.bias.data = param
-
-        if count == 4:
-            vgg.conv2_1.weight.data = param
-        if count == 5:
-            vgg.conv2_1.bias.data = param
-        if count == 6:
-            vgg.conv2_2.weight.data = param
-        if count == 7:
-            vgg.conv2_2.bias.data = param
-
-        if count == 8:
-            vgg.conv3_1.weight.data = param
-        if count == 9:
-            vgg.conv3_1.bias.data = param
-        if count == 10:
-            vgg.conv3_2.weight.data = param
-        if count == 11:
-            vgg.conv3_2.bias.data = param
-        if count == 12:
-            vgg.conv3_3.weight.data = param
-        if count == 13:
-            vgg.conv3_3.bias.data = param
-
-        if count == 14:
-            vgg.conv4_1.weight.data = param
-        if count == 15:
-            vgg.conv4_1.bias.data = param
-        if count == 16:
-            vgg.conv4_2.weight.data = param
-        if count == 17:
-            vgg.conv4_2.bias.data = param
-        if count == 18:
-            vgg.conv4_3.weight.data = param
-        if count == 19:
-            vgg.conv4_3.bias.data = param
-        count = count + 1
-
-
 # initial VGG19 network
 def init_vgg19(vgg, model_dir):
     vgg_load = torch.load(model_dir)
