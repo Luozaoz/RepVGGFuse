@@ -11,10 +11,7 @@ import time
 
 def load_model(path):
     model_or = RepVGGFuse_net(Args.s, Args.n, Args.channel, Args.stride)
-    # if num_block <= 4:
     model = model_or
-    # else:
-    #    model = torch.nn.DataParallel(model_or, list(range(torch.cuda.device_count())))
     model.load_state_dict(torch.load(path))
     # decoupling
     for module in model.modules():
@@ -58,13 +55,13 @@ def run(model, infrared_path, visible_path, output_path, img_name, fusion_type, 
 
 def main():
     # run demo
-    test_path = "images/40test/ir/"
-    # test_path = "images/40test/ir/"
+    test_path = "21test/ir/"
+    # test_path = "40test/ir/"
     network_type = 'RepVGGFuse'
     fusion_type = 'cat'
     imgs_paths_ir, names = utils.list_images(test_path)
     num = len(imgs_paths_ir)
-    output_path = './outputs/40images/'
+    output_path = './outputs/21images/'
     # output_path = './outputs/40images/'
     mode = 'L'
 
